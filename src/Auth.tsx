@@ -49,8 +49,6 @@ export const withLoginRequired = (Component: React.FC) => () => {
 const onLoginComplete = async () => {
   console.log('onLoginComplete called');
   
-  // Skip worker sync for now to simplify debugging
-  
   const returnTo = localStorage.getItem("returnTo");
   console.log('Return to URL:', returnTo);
   
@@ -120,29 +118,44 @@ export function Authenticate() {
       .then(async (response) => {
         console.log('OAuth authenticate response:', response);
         
-        // Store session info
+        // Store session info locally
         localStorage.setItem("stytch_session", response.session_token);
         localStorage.setItem("stytch_user_id", response.user.user_id);
         
-        // Notify the worker about the new session
         try {
           const workerUrl = import.meta.env.VITE_WORKER_URL || "https://rec-us-mcp-server-auth.lizziepika.workers.dev";
-          console.log('Notifying worker at:', `${workerUrl}/authenticate?token=${token}`);
           
-          const workerResponse = await fetch(`${workerUrl}/authenticate?token=${token}`, {
-            method: 'GET',
+          // 🔧 NEW: Send user info directly instead of token
+          const userInfo = {
+            userId: response.user.user_id,
+            email: response.user.emails[0]?.email,
+            verified: true,
+            sessionToken: response.session_token
+          };
+          
+          console.log('Notifying worker at:', `${workerUrl}/authenticate`);
+          console.log('Sending user info:', userInfo);
+          
+          const workerResponse = await fetch(`${workerUrl}/authenticate`, {
+            method: 'POST', // Changed to POST
             headers: {
+              'Content-Type': 'application/json',
               'Accept': 'text/plain',
             },
+            body: JSON.stringify(userInfo) // Send user info instead of token
           });
           
           if (!workerResponse.ok) {
-            console.error('Worker notification failed:', await workerResponse.text());
+            const errorText = await workerResponse.text();
+            console.error('Worker notification failed:', errorText);
+            alert(`Worker authentication failed: ${errorText}`);
           } else {
-            console.log('Worker notified successfully');
+            const successText = await workerResponse.text();
+            console.log('Worker notified successfully:', successText);
           }
         } catch (error) {
           console.error('Failed to notify worker:', error);
+          alert(`Failed to sync with MCP server: ${error}`);
           // Continue anyway - the session is stored locally
         }
         
@@ -156,7 +169,13 @@ export function Authenticate() {
       });
   }, [client]);
   
-  return <div>Authenticating... (check console for debug info)</div>;
+  return (
+    <div style={{ padding: "20px", textAlign: "center" }}>
+      <h3>🔐 Authenticating...</h3>
+      <p>Processing your authentication and syncing with MCP server...</p>
+      <p><small>Check console for debug info</small></p>
+    </div>
+  );
 }
 
 /**
